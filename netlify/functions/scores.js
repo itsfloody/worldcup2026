@@ -1,6 +1,6 @@
 // Module-level cache — persists across warm Lambda invocations
 let cache = { data: null, fetchedAt: 0 };
-const CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
+const CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes — max 3 real API calls per game
 
 exports.handler = async function (event, context) {
   const headers = {
@@ -31,74 +31,60 @@ exports.handler = async function (event, context) {
     };
   }
 
+  const API_KEY = process.env.FOOTBALL_DATA_API_KEY;
+  if (!API_KEY) {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: "FOOTBALL_DATA_API_KEY not set in Netlify environment variables" })
+    };
+  }
+
   try {
-    const res = await fetch("https://www.thesoccerworldcups.com/world_cups/2026_results.php", {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; WorldCupProxy/1.0)" }
-    });
-    if (!res.ok) throw new Error("Upstream HTTP " + res.status);
-    const html = await res.text();
-
-    const monthMap = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
-    const dateRx = /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),\s*2026/g;
-    const htmlDates = [];
-    let dr;
-    while ((dr = dateRx.exec(html)) !== null) {
-      const m = monthMap[dr[1]];
-      const d = parseInt(dr[2]);
-      htmlDates.push({
-        pos: dr.index,
-        iso: `2026-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`
-      });
-    }
-
-    const gameRx = /([A-Za-z\s]+?)\s*\[\s*(\d+)\s*-\s*(\d+)\s*\]\s*([A-Za-z\s]+?)(?=\[H2H\]|<)/g;
-    const events = [];
-    let gm;
-    while ((gm = gameRx.exec(html)) !== null) {
-      const pos = gm.index;
-      let matchDate = "2026-06-11";
-      for (const hd of htmlDates) {
-        if (hd.pos < pos) matchDate = hd.iso;
-        else break;
-      }
-      const home = gm[1].trim().replace(/\s+/g, ' ');
-      const away = gm[4].trim().replace(/\s+/g, ' ');
-      if (home && away && home.length > 1 && away.length > 1) {
-        events.push({
-          home,
-          away,
-          date: matchDate,
-          homeScore: parseInt(gm[2]),
-          awayScore: parseInt(gm[3]),
-          status: "FT"
-        });
-      }
-    }
-
-    // Deduplicate
-    const seen = new Set();
-    const unique = events.filter(e => {
-      const k = `${e.home}|${e.away}|${e.date}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
+    // football-data.org: WC = FIFA World Cup, free tier supports this
+    const res = await fetch("https://api.football-data.org/v4/competitions/WC/matches?season=2026", {
+      headers: { "X-Auth-Token": API_KEY }
     });
 
-    // Store in cache
-    cache = { data: unique, fetchedAt: now };
+    if (!res.ok) throw new Error("API HTTP " + res.status);
+    const data = await res.json();
+
+    const events = (data.matches || []).map(m => {
+      const statusMap = {
+        "FINISHED": "FT",
+        "IN_PLAY": "LIVE",
+        "HALFTIME": "HT",
+        "PAUSED": "HT",
+        "SCHEDULED": "scheduled",
+        "TIMED": "scheduled"
+      };
+      return {
+        home: m.homeTeam.name,
+        away: m.awayTeam.name,
+        date: m.utcDate.slice(0, 10),
+        homeScore: m.score.fullTime.home,
+        awayScore: m.score.fullTime.away,
+        homeScoreHT: m.score.halfTime.home,
+        awayScoreHT: m.score.halfTime.away,
+        status: statusMap[m.status] || m.status,
+        minute: m.minute || null
+      };
+    });
+
+    cache = { data: events, fetchedAt: now };
 
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
-        events: unique,
+        events,
         fetchedAt: new Date(now).toISOString(),
         cached: false,
-        source: "thesoccerworldcups.com"
+        source: "football-data.org"
       })
     };
   } catch (err) {
-    // On error, return stale cache if we have it rather than failing completely
+    // Return stale cache on error rather than failing
     if (cache.data) {
       return {
         statusCode: 200,

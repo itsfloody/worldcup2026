@@ -197,24 +197,26 @@ let scores = {
     cards: []
   },
   "Sweden|Tunisia|2026-06-15": {
-    homeScore: 0, awayScore: 1, status: "final",
-    scorers: ["⚽ Khazri (TUN)"],
+    homeScore: 5, awayScore: 1, status: "final",
+    scorers: ["⚽ Ayari (SWE) 7'", "⚽ Isak (SWE) 30'", "⚽ Rekik (TUN) 43'", "⚽ Gyökeres (SWE) 59'", "⚽ Svanberg (SWE) 84'", "⚽ Ayari (SWE) 90+6'"],
     cards: []
   }
 };
 
-// Map OUR fixture names -> scraped site names
+// Map OUR fixture names -> football-data.org names
 const tsdbNameMap = {
   "Bosnia & Herzegovina": "Bosnia and Herzegovina",
-  "Curaçao": "Curacao",
-  "USA": "USA",
-  "Czech Republic": "Czech Republic",
-  "South Korea": "South Korea",
-  "DR Congo": "RD Congo",
-  "Ivory Coast": "Ivory Coast",
-  "Cape Verde": "Cape Verde",
+  "Curaçao": "Curaçao",
+  "USA": "United States",
+  "Czech Republic": "Czechia",
+  "South Korea": "Korea Republic",
+  "DR Congo": "DR Congo",
+  "Ivory Coast": "Côte d'Ivoire",
+  "Cape Verde": "Cape Verde Islands",
   "Saudi Arabia": "Saudi Arabia",
-  "New Zealand": "New Zealand"
+  "New Zealand": "New Zealand",
+  "Scotland": "Scotland",
+  "Haiti": "Haiti"
 };
 function tsdbName(team) { return tsdbNameMap[team] || team; }
 
@@ -238,13 +240,14 @@ async function autoFetchScores() {
       const key = matchKey(match);
       if (ev.homeScore === null || ev.homeScore === undefined) return;
       const existing = scores[key] || {};
-      const isFinal = ev.status === "FT" || ev.status === "Match Finished" || ev.status === "AET" || ev.status === "PEN";
-      const isLive = ev.status === "1H" || ev.status === "2H" || ev.status === "HT" || ev.status === "ET" || ev.status === "BRK";
+      const isFinal = ev.status === "FT" || ev.status === "FINISHED";
+      const isLive = ev.status === "LIVE" || ev.status === "IN_PLAY";
+      const isHT = ev.status === "HT" || ev.status === "HALFTIME" || ev.status === "PAUSED";
       scores[key] = {
-        homeScore: parseInt(ev.homeScore),
-        awayScore: parseInt(ev.awayScore),
-        status: isFinal ? "final" : isLive ? "live" : ev.status,
-        clock: ev.progress || null,
+        homeScore: ev.homeScore !== null ? parseInt(ev.homeScore) : (existing.homeScore ?? ""),
+        awayScore: ev.awayScore !== null ? parseInt(ev.awayScore) : (existing.awayScore ?? ""),
+        status: isFinal ? "final" : isLive ? "live" : isHT ? "live" : ev.status,
+        clock: isHT ? "HT" : ev.minute ? ev.minute + "'" : null,
         scorers: existing.scorers || [],
         cards: existing.cards || []
       };
