@@ -32,7 +32,7 @@
 <h1>🏆 FIFA World Cup 2026</h1>
 <div class="sub">Group stage — all times NZST (Hastings)</div>
 <input type="text" id="teamFilter" placeholder="🔍 Filter by team..." style="width:100%; padding:16px; border-radius:10px; border:2px solid #ffcc00; background:#1d3f72; color:#fff; font-size:18px; margin-bottom:10px; font-weight:600;">
-<div id="status" style="text-align:center; font-size:12px; color:#7fa8e0; margin-bottom:8px;">Loading...</div>
+<div id="status" style="text-align:center; font-size:12px; color:#7fa8e0; margin-bottom:8px;">Scores last updated: 15 Jun 2026 — ask Claude to "update scores" anytime</div>
 <button class="updateBtn" id="updateBtn" style="display:block; width:100%; background:#ffcc00; color:#0b1d3a; border:none; padding:12px; border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; margin-bottom:10px;">⚽ Refresh Scores Now</button>
 <div id="content"></div>
 
@@ -143,30 +143,68 @@ const flagMap = {
 let scores = {
   "Mexico|South Africa|2026-06-11": {
     homeScore: 2, awayScore: 0, status: "final",
-    scorers: ["⚽ Quiñones 9'", "⚽ Jiménez 67'"],
+    scorers: ["⚽ Quiñones (MEX) 9'", "⚽ Jiménez (MEX) 67'"],
     cards: ["🟨 Gutiérrez (MEX) 24'", "🟨 Mokoena (RSA) 30'", "🟥 Sithole (RSA) 51'", "🟥 Zwane (RSA) 82'", "🟥 Montes (MEX) 90+2'"]
   },
   "South Korea|Czech Republic|2026-06-12": {
     homeScore: 2, awayScore: 1, status: "final",
-    scorers: ["⚽ Krejčí (CZE) 59'", "⚽ Hwang In-beom 67'", "⚽ Oh Hyeon-gyu 80'"],
+    scorers: ["⚽ Krejčí (CZE) 59'", "⚽ Hwang In-beom (KOR) 67'", "⚽ Oh Hyeon-gyu (KOR) 80'"],
     cards: ["🟨 Lee Gi-hyuk (KOR)"]
   },
   "Canada|Bosnia & Herzegovina|2026-06-12": {
-    homeScore: 0, awayScore: 0, status: "final",
-    scorers: [],
+    homeScore: 1, awayScore: 1, status: "final",
+    scorers: ["⚽ Lukić (BIH) 28'", "⚽ Larin (CAN) 78'"],
+    cards: []
+  },
+  "USA|Paraguay|2026-06-13": {
+    homeScore: 4, awayScore: 1, status: "final",
+    scorers: ["⚽ OG Bobadilla (PAR) 7'", "⚽ Balogun (USA) 31'", "⚽ Balogun (USA) 45+5'", "⚽ Maurício (PAR) 73'", "⚽ Reyna (USA) 90+8'"],
+    cards: []
+  },
+  "Qatar|Switzerland|2026-06-13": {
+    homeScore: 1, awayScore: 1, status: "final",
+    scorers: ["⚽ Embolo (SUI) 17' (pen)", "⚽ OG Muheim (SUI) 89'"],
+    cards: []
+  },
+  "Brazil|Morocco|2026-06-13": {
+    homeScore: 1, awayScore: 1, status: "final",
+    scorers: ["⚽ Vinícius Jr (BRA)", "⚽ Saibari (MAR)"],
+    cards: []
+  },
+  "Haiti|Scotland|2026-06-14": {
+    homeScore: 0, awayScore: 1, status: "final",
+    scorers: ["⚽ McGinn (SCO) 28'"],
+    cards: []
+  },
+  "Australia|Turkey|2026-06-14": {
+    homeScore: 2, awayScore: 0, status: "final",
+    scorers: ["⚽ Irankunda (AUS) 27'", "⚽ Metcalfe (AUS) 75'"],
+    cards: []
+  },
+  "Germany|Curaçao|2026-06-14": {
+    homeScore: 7, awayScore: 1, status: "final",
+    scorers: ["⚽ Nmecha (GER) 6'", "⚽ Comenencia (CUW) 21'", "⚽ Schlotterbeck (GER) 37'", "⚽ Havertz (GER) 45+1' (pen)", "⚽ Musiala (GER) 47'", "⚽ Brown (GER) 68'", "⚽ Undav (GER) 78'", "⚽ Havertz (GER) 88'"],
+    cards: []
+  },
+  "Netherlands|Japan|2026-06-14": {
+    homeScore: 2, awayScore: 2, status: "final",
+    scorers: ["⚽ Van Dijk (NED)", "⚽ Gakpo (NED)", "⚽ Malen (NED)", "⚽ Kamada (JPN) 88'"],
     cards: []
   }
 };
 
-// Map our team names to TheSportsDB naming where they differ
+// Map OUR fixture names -> TheSportsDB names
 const tsdbNameMap = {
-  "Bosnia & Herzegovina": "Bosnia and Herzegovina",
+  "Bosnia & Herzegovina": "Bosnia-Herzegovina",
+  "USA": "USA",
+  "Czech Republic": "Czech Republic",
+  "South Korea": "South Korea",
   "DR Congo": "DR Congo",
   "Ivory Coast": "Ivory Coast",
-  "South Korea": "South Korea",
-  "Czech Republic": "Czech Republic",
-  "USA": "USA",
-  "Cape Verde": "Cape Verde"
+  "Cape Verde": "Cape Verde",
+  "Curaçao": "Curacao",
+  "Saudi Arabia": "Saudi Arabia",
+  "New Zealand": "New Zealand"
 };
 function tsdbName(team) { return tsdbNameMap[team] || team; }
 
@@ -190,10 +228,13 @@ async function autoFetchScores() {
       const key = matchKey(match);
       if (ev.homeScore === null || ev.homeScore === undefined) return;
       const existing = scores[key] || {};
+      const isFinal = ev.status === "FT" || ev.status === "Match Finished" || ev.status === "AET" || ev.status === "PEN";
+      const isLive = ev.status === "1H" || ev.status === "2H" || ev.status === "HT" || ev.status === "ET" || ev.status === "BRK";
       scores[key] = {
         homeScore: parseInt(ev.homeScore),
         awayScore: parseInt(ev.awayScore),
-        status: ev.status === "Match Finished" ? "final" : (ev.progress || "live"),
+        status: isFinal ? "final" : isLive ? "live" : ev.status,
+        clock: ev.progress || null,
         scorers: existing.scorers || [],
         cards: existing.cards || []
       };
